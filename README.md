@@ -1,6 +1,6 @@
 # typstpkg-shipshop
 
-HTML parser in Typst.
+HTML parsing and rendering in Typst.
 
 ## Demo
 
@@ -10,7 +10,7 @@ https://pub-714f8d634e8f451d9f2fe91a4debfa23.r2.dev/typstpkg-shipshop/5c31e5e0e8
 ## Usage
 
 ```
-#html-parser("...")
+#html-render("...")
 ```
 
 
