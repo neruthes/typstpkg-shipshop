@@ -1,0 +1,11 @@
+[package]
+
+name = "shipshop"
+version = "0.1.0"
+entrypoint = "shipshop.typ"
+authors = ["@Neruthes"]
+license = "MIT"
+description = "Per-page backgrounds and foregrounds"
+repository = "https://github.com/neruthes/typstpkg-shipshop"
+keywords = ["Parser", "HTML"]
+categories = ["utility"]
