@@ -1,47 +1,3 @@
-#let parse_quoted_list(input) = {
-  let pattern = regex("'([^']*)'|(\d+)")
-
-  input
-    .matches(pattern)
-    .map(m => {
-      // If it's a quoted match, the captured group is at index 1
-      // If it's a raw number, the captured group is at index 2
-      if m.captures.at(0) != none {
-        m.captures.at(0)
-      } else {
-        m.captures.at(1)
-      }
-    })
-}
-
-
-
-
-
-
-
-#let parse-css-kv(css_piece) = {
-  let pairs = (:)
-
-  // Split by semicolon to get individual "key: value" strings
-  for rule in css_piece.split(";") {
-    let trimmed = rule.trim()
-
-    // Skip empty strings (common at the end of a CSS block)
-    if trimmed.len() > 0 {
-      let parts = trimmed.split(":")
-
-      if parts.len() >= 2 {
-        let key = parts.at(0).trim()
-        // Join the rest back together in case the value contains a colon (like a URL)
-        let value = parts.slice(1).join(":").trim()
-        pairs.insert(key, value)
-      }
-    }
-  }
-
-  return pairs
-}
 
 
 
@@ -50,39 +6,28 @@
 
 
 
-// #let parse_dimension(dimstr) = {
-//   // let dim = 10pt
-//   if dimstr.ends-with("pt") {
-//     return float(dimstr.replace("pt", "")) * 1pt
-//   } else if dimstr.ends-with("bp") {
-//     return float(dimstr.replace("bp", "")) * 1pt
-//   } else if dimstr.ends-with("px") {
-//     return float(dimstr.replace("px", "")) * 1pt
-//   } else if dimstr.ends-with("mm") {
-//     return float(dimstr.replace("mm", "")) * 1mm
-//   } else if dimstr.ends-with("cm") {
-//     return float(dimstr.replace("cm", "")) * 1cm
-//   } else if dimstr.ends-with("in") {
-//     return float(dimstr.replace("in", "")) * 1in
-//   }
-//   // return dim
-//   return none
-// }
-// #let parse_dimension(dimstr) = {
-//   return eval(dimstr.replace("px", "pt"))
-// }
 
 
-
-
-
-
-
-
-#let __nodestyler(dom_task, csskv, tagname) = {
+#let __nodestyler(dom_task, csskv, tagname, tagname_stack_current) = {
   let parse_dimension(dimstr) = {
     return eval(dimstr.replace("px", "pt"))
   }
+
+  let parse_quoted_list(input) = {
+    let pattern = regex("'([^']*)'|(\d+)")
+    input
+      .matches(pattern)
+      .map(m => {
+        // If it's a quoted match, the captured group is at index 1
+        // If it's a raw number, the captured group is at index 2
+        if m.captures.at(0) != none {
+          m.captures.at(0)
+        } else {
+          m.captures.at(1)
+        }
+      })
+  }
+
   let default_kv = (
     display: if ("span", "strong", "em", "code").contains(tagname) { "inline" } else { "block" },
     padding-top: "0pt",
@@ -105,18 +50,20 @@
     border-bottom: none,
     border-left: none,
     border-right: none,
+    width: "initial",
+    height: "initial",
     border: none,
     padding: none,
     margin: none,
     font-size: "1em",
     color: "black",
-    line-height: "1.4em",
+    line-height: "1.65em",
     background-color: "none",
     text-decoration: "none",
     text-align: "left",
     __dummy__font-family: "'TeX Gyre Heros', sans-serif",
     font-family: if ("pre", "code").contains(tagname) {
-      "'JetBrains Mono NL', monospace"
+      "'JetBrains Mono NL', 'Source Code Pro', 'Noto Sans Mono', 'Ubuntu Mono', 'Inconsolata', monospace"
     } else {
       "'TeX Gyre Heros', sans-serif"
     },
@@ -257,6 +204,18 @@
         return text(font: __fonts, it)
       }
     },
+    // content box
+    it => {
+      let __width = auto
+      if realkv.width != "initial" {
+        __width = parse_dimension(realkv.width)
+      }
+      let __height = auto
+      if realkv.height != "initial" {
+        __height = parse_dimension(realkv.height)
+      }
+      return box(width: __width, height: __height, it)
+    },
     // block padding box
     it => {
       if realkv.display == "block" {
@@ -321,6 +280,11 @@
         }
       }
     },
+    // Miscellaneous
+    it => {
+      set par(leading: parse_dimension(realkv.line-height) - 1em)
+      it
+    },
     // ...
     it => { it },
   )
@@ -331,18 +295,43 @@
 
 
 
+
+
+
+
 #let html-render(input_str, debug: false) = {
-  let html_str = "<magicwrapperroot>" + input_str + "</magicwrapperroot>"
+  let __parse-css-kv(css_piece) = {
+    let pairs = (:)
+    // Split by semicolon to get individual "key: value" strings
+    for rule in css_piece.split(";") {
+      let trimmed = rule.trim()
+      // Skip empty strings (common at the end of a CSS block)
+      if trimmed.len() > 0 {
+        let parts = trimmed.split(":")
+        if parts.len() >= 2 {
+          let key = parts.at(0).trim()
+          // Join the rest back together in case the value contains a colon (like a URL)
+          let value = parts.slice(1).join(":").trim()
+          pairs.insert(key, value)
+        }
+      }
+    }
+    return pairs
+  }
+
+
+  let html_str = "<magicwrapperroot style=\"\">" + input_str + "</magicwrapperroot>"
   // BEGIN PREPROCESSOR -------------------------------------------------
   html_str = html_str
-    .replace(regex("\n\s+"), "")
-    .replace(regex(">\s+"), ">")
+    .replace(regex(">\n\s*"), ">")
+    .replace(regex(">\s*\n"), ">")
     .replace(regex("<br>"), "<br/>")
     .replace(regex("<hr>"), "<hr/>")
+    // .replace(regex("\n\s+"), " ")
   // END PREPROCESSOR -------------------------------------------------
   let ast_tree = xml(bytes(html_str))
   if debug { text(repr(ast_tree)) }
-  let walk_tree(treeish) = {
+  let walk_tree(treeish, tagname_stack_context) = {
     let get-text(it) = {
       // Walk a sequence tree
       if type(it) == str {
@@ -373,20 +362,19 @@
       "span": it => it,
       "strong": it => strong(it),
       "em": it => emph(it),
-      // "code": it => raw(if it.at("text", default: none) == none { get-text(it) } else { it.text }),
-      // "code": it => (get-text(it)),
       "code": it => it,
-      "div": it => block(it),
+      "div": it => block(breakable: true, it),
       "br": it => linebreak(),
       "hr": it => block(width: 100%, height: 0.5pt, fill: black),
     )
     let container_func = containers_table.at(treeish.tag, default: it => it)
+    let tagname_stack_current = (..tagname_stack_context, treeish.tag)
     let process_child(child) = {
       if type(child) == str {
-        return child.replace("\n", " ").replace(regex("\s\s*"), " ")
+        return child.replace("\n", " ").replace(regex("\s+"), " ")
       } else {
         return {
-          walk_tree(child)
+          walk_tree(child, tagname_stack_current)
         }
       }
     }
@@ -396,16 +384,15 @@
       if attrs_style == none {
         dom_task
       } else {
-        let parsed_style_dict = parse-css-kv(attrs_style)
-        __nodestyler(dom_task, parsed_style_dict, treeish.tag)
+        let parsed_style_dict = __parse-css-kv(attrs_style)
+        __nodestyler(dom_task, parsed_style_dict, treeish.tag, tagname_stack_current)
       }
     })
   }
-  // ast_tree.at(0)
-  walk_tree(ast_tree.at(0))
+  walk_tree(ast_tree.at(0), ())
   if debug {
     pagebreak()
-    repr(walk_tree(ast_tree.at(0)))
+    repr(walk_tree(ast_tree.at(0), ()))
   }
 }
 
