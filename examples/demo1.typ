@@ -22,26 +22,53 @@
     </div>
     <span style="width: 50mm; height: 25mm; background-color: gray;"></span>
   </div>
+<pre lang="js">
+const ccc = { ddd: `xx${0.1 + 0.2}yy` };
+const zz = { ddd: `xx${0.1 + 0.2}yy` };
+const yy = { ddd: `xx${0.1 + 0.2}yy` };
+</pre>
+<pre lang="typst">
+#let aa = (bb: "33" + repr(0.1 + 0.2))
+#let aa = (bb: "33" + repr(0.1 + 0.2))
+#let aa = (bb: "33" + repr(0.1 + 0.2))
+#let aa = (bb: "33" + repr(0.1 + 0.2))
+</pre>
 </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th><th>Age</th><th>Address</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Alice</td><td>25</td><td>1 Infinite Loop, Cupertino, CA 95014, US</td>
+        <td>Bob</td><td>27</td><td>10 Downing St, Westminster, London, UK</td>
+        <td>Charles</td><td>29</td><td>Tamar, Hong Kong SAR</td>
+      </tr>
+    </tbody>
+  </table>
 <hr>
 ```
 // #lorem(120)
 
-
+#myhtml
+#pagebreak(weak: true)
 
 #[
   #set heading(numbering: "1.1.1.1.1.  ")
   #html-render(
     myhtml.text,
-    // debug: true,
+    debug: true,
   )
 ]
 
 
-#pagebreak()
-#myhtml
+
 
 
 /*
   w=y ntypstpro examples/demo1.typ
+  cfoss2 _dist/examples/demo1.pdf
 */

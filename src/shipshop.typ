@@ -1,33 +1,91 @@
+#let __get-text(it) = {
+  // Walk a sequence tree
+  if type(it) == str {
+    // If it's already a string, just return it
+    return it
+  } else if it.has("text") {
+    // If it's a text element (e.g., [Hello])
+    return it.text
+  } else if it.has("children") {
+    // If it's a sequence, walk the children
+    return it.children.map(__get-text).join()
+  } else if it.has("body") {
+    // If it's a container (like a box, block, or bold)
+    return __get-text(it.body)
+  } else {
+    // Fallback for elements without text (like images or spacing)
+    return ""
+  }
+}
 
 
 
+#let parse_dimension(dimstr) = {
+  return eval(dimstr.replace("px", "pt"))
+}
+
+#let parse_quoted_list(input) = {
+  let pattern = regex("'([^']*)'|(\d+)")
+  input
+    .matches(pattern)
+    .map(m => {
+      // If it's a quoted match, the captured group is at index 1
+      // If it's a raw number, the captured group is at index 2
+      if m.captures.at(0) != none {
+        m.captures.at(0)
+      } else {
+        m.captures.at(1)
+      }
+    })
+}
 
 
 
+#let __expand-shorthand(dict, name) = {
+  if name not in dict or dict.at(name) == none { return dict }
 
+  let val = dict.at(name)
+  let dims = if val.contains(" ") { val.split(regex("\s+")) } else { (val,) }
 
-
-
-#let __nodestyler(dom_task, csskv, tagname, tagname_stack_current) = {
-  let parse_dimension(dimstr) = {
-    return eval(dimstr.replace("px", "pt"))
+  // CSS Box Model Shorthand Logic:
+  // 1 value:  [all]
+  // 2 values: [top/bottom, left/right]
+  // 3 values: [top, left/right, bottom]
+  // 4 values: [top, right, bottom, left]
+  let resolved = if dims.len() == 1 {
+    (top: dims.at(0), right: dims.at(0), bottom: dims.at(0), left: dims.at(0))
+  } else if dims.len() == 2 {
+    (top: dims.at(0), right: dims.at(1), bottom: dims.at(0), left: dims.at(1))
+  } else if dims.len() == 3 {
+    (top: dims.at(0), right: dims.at(1), bottom: dims.at(2), left: dims.at(1))
+  } else if dims.len() == 4 {
+    (top: dims.at(0), right: dims.at(1), bottom: dims.at(2), left: dims.at(3))
+  } else {
+    (:)
   }
 
-  let parse_quoted_list(input) = {
-    let pattern = regex("'([^']*)'|(\d+)")
-    input
-      .matches(pattern)
-      .map(m => {
-        // If it's a quoted match, the captured group is at index 1
-        // If it's a raw number, the captured group is at index 2
-        if m.captures.at(0) != none {
-          m.captures.at(0)
-        } else {
-          m.captures.at(1)
-        }
-      })
+  // Merge the expanded values back into the dictionary
+  for (dir, amount) in resolved {
+    dict.insert(name + "-" + dir, amount)
   }
 
+  // Optionally remove the shorthand key to clean up
+  let _ = dict.remove(name)
+  return dict
+}
+
+
+
+
+
+#let __nodestyler(
+  dom_task, // content or sequence, usually
+  csskv, // kv of css properties
+  tagname, // "div", "p", "h2"
+  attrs, // dictionary of element attributes
+  tagname_stack_current, // list of tag names of the current branch on tree
+  treeish, // Recuesive DOM tree partial, from native parser
+) = {
   let default_kv = (
     display: if ("span", "strong", "em", "code").contains(tagname) { "inline" } else { "block" },
     padding-top: "0pt",
@@ -69,7 +127,6 @@
     },
   )
   let realkv = default_kv + csskv
-  // repr(realkv)
 
   // Expand border values
   if realkv.border != none {
@@ -78,23 +135,10 @@
     realkv.border-left = realkv.border
     realkv.border-right = realkv.border
   }
-  // ("top","bottom","left","right").map(side => {
-  //   let __config = realkv.at("border-" + side)
-  //   if __config != none {
-  //     let __arr = parse_quoted_list(__config)
-  //     realkv.at("border-" + side + "-width") = parse_dimension(__arr.at(0))
-  //     // TODO: solid/dashes
-  //     realkv.at("border-" + side + "-color") = parse_dimension(__arr.at(2))
-  //   }
-  // }).join()
   for (itr, side) in ("top", "bottom", "left", "right").enumerate() {
-    // let side = ("top", "bottom", "left", "right").at(itr)
-    // let side = (itr)
     let __config = realkv.at("border-" + side)
     if __config != none {
       let __arr = __config.split(regex("\s+"))
-      // repr(__config)
-      // repr(__arr)
       realkv.at("border-" + side + "-width") = (__arr.at(0))
       // TODO: solid/dashes
       realkv.at("border-" + side + "-color") = (__arr.at(2))
@@ -103,47 +147,13 @@
 
   /// Expands shorthand properties like padding or margin into
   /// individual directional keys in the dictionary.
-  let expand-shorthand(dict, name) = {
-    if name not in dict or dict.at(name) == none { return dict }
-
-    let val = dict.at(name)
-    let dims = if val.contains(" ") { val.split(regex("\s+")) } else { (val,) }
-
-    // CSS Box Model Shorthand Logic:
-    // 1 value:  [all]
-    // 2 values: [top/bottom, left/right]
-    // 3 values: [top, left/right, bottom]
-    // 4 values: [top, right, bottom, left]
-    let resolved = if dims.len() == 1 {
-      (top: dims.at(0), right: dims.at(0), bottom: dims.at(0), left: dims.at(0))
-    } else if dims.len() == 2 {
-      (top: dims.at(0), right: dims.at(1), bottom: dims.at(0), left: dims.at(1))
-    } else if dims.len() == 3 {
-      (top: dims.at(0), right: dims.at(1), bottom: dims.at(2), left: dims.at(1))
-    } else if dims.len() == 4 {
-      (top: dims.at(0), right: dims.at(1), bottom: dims.at(2), left: dims.at(3))
-    } else {
-      (:)
-    }
-
-    // Merge the expanded values back into the dictionary
-    for (dir, amount) in resolved {
-      dict.insert(name + "-" + dir, amount)
-    }
-
-    // Optionally remove the shorthand key to clean up
-    let _ = dict.remove(name)
-    return dict
-  }
-
-  // Usage:
-  realkv = expand-shorthand(realkv, "padding")
-  realkv = expand-shorthand(realkv, "margin")
+  realkv = __expand-shorthand(realkv, "padding")
+  realkv = __expand-shorthand(realkv, "margin")
 
   let pipe(value, ..functions) = {
     functions.pos().fold(value, (acc, f) => f(acc))
   }
-  // dom_task
+
   let steps = (
     // font-size
     it => {
@@ -241,20 +251,23 @@
           left: parse_dimension(realkv.border-left-width) / 2,
           right: parse_dimension(realkv.border-right-width) / 2,
         )
-        return box(
-          inset: __inset,
-          fill: eval(realkv.background-color),
-          box(
-            stroke: (
-              top: parse_dimension(realkv.border-top-width) + eval(realkv.border-top-color),
-              bottom: parse_dimension(realkv.border-bottom-width) + eval(realkv.border-bottom-color),
-              left: parse_dimension(realkv.border-left-width) + eval(realkv.border-left-color),
-              right: parse_dimension(realkv.border-right-width) + eval(realkv.border-right-color),
-            ),
+        let __inset_all_zero = false // TODO: Calculate this bool value from __inset
+        if __inset_all_zero { return it } else {
+          return box(
             inset: __inset,
-            it,
-          ),
-        )
+            fill: eval(realkv.background-color),
+            box(
+              stroke: (
+                top: parse_dimension(realkv.border-top-width) + eval(realkv.border-top-color),
+                bottom: parse_dimension(realkv.border-bottom-width) + eval(realkv.border-bottom-color),
+                left: parse_dimension(realkv.border-left-width) + eval(realkv.border-left-color),
+                right: parse_dimension(realkv.border-right-width) + eval(realkv.border-right-color),
+              ),
+              inset: __inset,
+              it,
+            ),
+          )
+        }
       } else {
         return it
       }
@@ -298,9 +311,9 @@
 
 
 
-
+// This comment line is line # 314
 #let html-render(input_str, debug: false) = {
-  let __parse-css-kv(css_piece) = {
+  let __parse_css_kv(css_piece) = {
     let pairs = (:)
     // Split by semicolon to get individual "key: value" strings
     for rule in css_piece.split(";") {
@@ -327,30 +340,20 @@
     .replace(regex(">\s*\n"), ">")
     .replace(regex("<br>"), "<br/>")
     .replace(regex("<hr>"), "<hr/>")
-    // .replace(regex("\n\s+"), " ")
   // END PREPROCESSOR -------------------------------------------------
+
+
   let ast_tree = xml(bytes(html_str))
-  if debug { text(repr(ast_tree)) }
-  let walk_tree(treeish, tagname_stack_context) = {
-    let get-text(it) = {
-      // Walk a sequence tree
-      if type(it) == str {
-        // If it's already a string, just return it
-        return it
-      } else if it.has("text") {
-        // If it's a text element (e.g., [Hello])
-        return it.text
-      } else if it.has("children") {
-        // If it's a sequence, walk the children
-        return it.children.map(get-text).join()
-      } else if it.has("body") {
-        // If it's a container (like a box, block, or bold)
-        return get-text(it.body)
-      } else {
-        // Fallback for elements without text (like images or spacing)
-        return ""
-      }
+  let walk_tree(treeish, tagname_stack_context, dict_vars_context) = {
+    let dict_vars_current = dict_vars_context + (:)
+
+
+    if treeish.tag == "table" {
+      dict_vars_current.is_table = true
+      dict_vars_current.table_cols = treeish.children.at(0).children.at(0).children.len()
     }
+
+
     let containers_table = (
       "h1": it => heading(level: 1, it),
       "h2": it => heading(level: 2, it),
@@ -363,36 +366,87 @@
       "strong": it => strong(it),
       "em": it => emph(it),
       "code": it => it,
+      "pre": it => block(breakable: true, it),
       "div": it => block(breakable: true, it),
       "br": it => linebreak(),
       "hr": it => block(width: 100%, height: 0.5pt, fill: black),
+      "table": it => table(
+        columns: dict_vars_current.table_cols * (auto,),
+        inset: 5pt,
+        align: left,
+        // it is likely ((cell, cell), (cell, cell)), flatten it to (cell, cell, cell, cell)
+        ..if type(it) == array { it.flatten() } else { it }
+      ),
+      "thead": it => it,
+      "tbody": it => it,
+      "tr": it => it,
+      "th": it => table.cell(fill: gray.lighten(100%), strong(it)),
+      "td": it => table.cell(it),
     )
     let container_func = containers_table.at(treeish.tag, default: it => it)
+
+    let impls_table = (
+      "pre": it => raw(block: true, lang: treeish.attrs.at("lang", default: none), __get-text(it)),
+      "code": it => raw(block: false, lang: treeish.attrs.at("lang", default: none), __get-text(it)),
+    )
+    let impl_func = impls_table.at(treeish.tag, default: it => it)
+
     let tagname_stack_current = (..tagname_stack_context, treeish.tag)
+
+
     let process_child(child) = {
       if type(child) == str {
-        return child.replace("\n", " ").replace(regex("\s+"), " ")
-      } else {
-        return {
-          walk_tree(child, tagname_stack_current)
+        // Only collapse whitespace if we are NOT inside a 'pre' tag
+        if not tagname_stack_current.contains("pre") {
+          return child
+            .replace("\n", " ")
+            .replace(regex("\s+"), " ")
+            .replace(regex("/th>[\n\s]*<"), "/th><")
+            .replace(regex("/td>[\n\s]*<"), "/td><")
         }
+        return child
+      } else {
+        return walk_tree(child, tagname_stack_current, dict_vars_current)
       }
     }
-    container_func({
-      let attrs_style = treeish.attrs.at("style", default: none)
-      let dom_task = treeish.children.filter(it => it != "\n " and it != "\n").map(process_child).join()
-      if attrs_style == none {
-        dom_task
-      } else {
-        let parsed_style_dict = __parse-css-kv(attrs_style)
-        __nodestyler(dom_task, parsed_style_dict, treeish.tag, tagname_stack_current)
-      }
-    })
+
+
+
+    let processed_children = treeish.children.filter(it => it != "\n " and it != "\n").map(process_child)
+    // If it's a table-related container, don't join into a string;
+    // keep as an array to allow the 'table' tag to spread them.
+    let is_table_component = ("table", "thead", "tbody", "tr").contains(treeish.tag)
+    let dom_task = if is_table_component {
+      processed_children
+    } else {
+      impl_func(processed_children.join(""))
+    }
+
+    let attrs_style = treeish.attrs.at("style", default: none)
+
+    // 1. Identify the style and the task
+    let parsed_style_dict = if attrs_style != none { __parse_css_kv(attrs_style) } else { none }
+    
+    // 2. Resolve the task (styler or raw)
+    // Note: We remove the { } block that was forcing content conversion
+    let final_task = if parsed_style_dict == none {
+      dom_task
+    } else {
+      __nodestyler(dom_task, parsed_style_dict, treeish.tag, treeish.attrs, tagname_stack_current, treeish)
+    }
+    
+    // 3. Call the container function
+    // If final_task is an array (from a table/tr), container_func uses ..it
+    // If it's content (from a p/div), it just renders normally
+    container_func(final_task)
   }
-  walk_tree(ast_tree.at(0), ())
+  set par(spacing: 0mm)
+  walk_tree(ast_tree.at(0), (), (:))
   if debug {
     pagebreak()
-    repr(walk_tree(ast_tree.at(0), ()))
+    text(repr(ast_tree))
+    pagebreak()
+    repr(walk_tree(ast_tree.at(0), (), (:)))
   }
 }
 
