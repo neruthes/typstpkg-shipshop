@@ -1,3 +1,71 @@
+#let __sequence_shake(it) = {
+  // 1. Define the "trash" criteria
+  let is_empty(el) = {
+    if el == [] { return true }
+    if type(el) == content {
+      if el.func() == h or el.func() == v {
+        if el.amount == 0pt or el.amount == 0fr { return true }
+      }
+    }
+    return false
+  }
+
+  // 2. If it's not content (like a string or symbol), just return it
+  if type(it) != content { return it }
+
+  // 3. Handle Sequences
+  if it.func() == [].func() {
+    let children = it.children.map(__sequence_shake).filter(child => not is_empty(child))
+
+    return children.join()
+  }
+
+  // 4. Handle Styled elements or containers
+  if it.has("child") {
+    let new_child = __sequence_shake(it.child)
+    if is_empty(new_child) { return [] }
+
+    // Create a copy and update the child
+    let out = it
+    out.child = new_child
+    return out
+  }
+
+  return it
+}
+
+// --- Testing ---
+
+#let test_content = [
+  Hello
+  #h(0pt)
+  #v(0mm)
+  #[]
+  World
+  #h(10pt)
+  #[#h(0fr)]
+]
+
+#let __std_test_case_001 = [
+  Original length: #test_content.children.len() \
+  Shaken length: #__sequence_shake(test_content).children.len()
+
+  #__sequence_shake(test_content)
+]
+
+
+#let __parse_color(input_color) = {
+  let __color = black
+  if input_color.clusters().at(0) == "#" {
+    // Hex parser mode
+    __color = rgb(input_color)
+  } else {
+    // Asume named color mode
+    __color = eval(input_color)
+  } // TODO: More modes
+  return __color
+}
+
 #let __get-text(it) = {
   // Walk a sequence tree
   if type(it) == str {
@@ -20,11 +88,11 @@
 
 
 
-#let parse_dimension(dimstr) = {
+#let __parse_dimension(dimstr) = {
   return eval(dimstr.replace("px", "pt"))
 }
 
-#let parse_quoted_list(input) = {
+#let __parse_quoted_list(input) = {
   let pattern = regex("'([^']*)'|(\d+)")
   input
     .matches(pattern)
@@ -157,24 +225,24 @@
   let steps = (
     // font-size
     it => {
-      let __dim = parse_dimension(realkv.font-size)
-      if __dim != none {
-        text(size: __dim, it)
+      if type(it) == array {
+        return it
       } else {
-        it
+        let __dim = __parse_dimension(realkv.font-size)
+        return if __dim != none {
+          text(size: __dim, it)
+        } else {
+          it
+        }
       }
     },
     // color
     it => {
-      let __color = black
-      if realkv.color.clusters().at(0) == "#" {
-        // Hex parser mode
-        __color = rgb(realkv.color)
+      return if type(it) == array {
+        it
       } else {
-        // Asume named color mode
-        __color = eval(realkv.color)
-      } // TODO: More modes
-      text(fill: __color, it)
+        text(fill: __parse_color(realkv.color), it)
+      }
     },
     // text-decoration
     it => {
@@ -210,7 +278,14 @@
       if realkv.font-family == default_kv.__dummy__font-family {
         return it
       } else {
-        let __fonts = parse_quoted_list(realkv.font-family)
+        let __fonts = __parse_quoted_list(realkv.font-family).map(fontname => {
+          let __table = (
+            serif: "Libertinus Serif",
+            sans-serif: "Noto Sans",
+            monospace: "DejaVu Sans Mono",
+          )
+          return __table.at(fontname, default: fontname)
+        })
         return text(font: __fonts, it)
       }
     },
@@ -218,11 +293,11 @@
     it => {
       let __width = auto
       if realkv.width != "initial" {
-        __width = parse_dimension(realkv.width)
+        __width = __parse_dimension(realkv.width)
       }
       let __height = auto
       if realkv.height != "initial" {
-        __height = parse_dimension(realkv.height)
+        __height = __parse_dimension(realkv.height)
       }
       return box(width: __width, height: __height, it)
     },
@@ -231,10 +306,10 @@
       if realkv.display == "block" {
         return box(
           inset: (
-            top: parse_dimension(realkv.padding-top),
-            bottom: parse_dimension(realkv.padding-bottom),
-            left: parse_dimension(realkv.padding-left),
-            right: parse_dimension(realkv.padding-right),
+            top: __parse_dimension(realkv.padding-top),
+            bottom: __parse_dimension(realkv.padding-bottom),
+            left: __parse_dimension(realkv.padding-left),
+            right: __parse_dimension(realkv.padding-right),
           ),
           it,
         )
@@ -246,22 +321,22 @@
     it => {
       if realkv.display == "block" or true {
         let __inset = (
-          top: parse_dimension(realkv.border-top-width) / 2,
-          bottom: parse_dimension(realkv.border-bottom-width) / 2,
-          left: parse_dimension(realkv.border-left-width) / 2,
-          right: parse_dimension(realkv.border-right-width) / 2,
+          top: __parse_dimension(realkv.border-top-width) / 2,
+          bottom: __parse_dimension(realkv.border-bottom-width) / 2,
+          left: __parse_dimension(realkv.border-left-width) / 2,
+          right: __parse_dimension(realkv.border-right-width) / 2,
         )
         let __inset_all_zero = false // TODO: Calculate this bool value from __inset
         if __inset_all_zero { return it } else {
           return box(
             inset: __inset,
-            fill: eval(realkv.background-color),
+            fill: __parse_color(realkv.background-color),
             box(
               stroke: (
-                top: parse_dimension(realkv.border-top-width) + eval(realkv.border-top-color),
-                bottom: parse_dimension(realkv.border-bottom-width) + eval(realkv.border-bottom-color),
-                left: parse_dimension(realkv.border-left-width) + eval(realkv.border-left-color),
-                right: parse_dimension(realkv.border-right-width) + eval(realkv.border-right-color),
+                top: __parse_dimension(realkv.border-top-width) + __parse_color(realkv.border-top-color),
+                bottom: __parse_dimension(realkv.border-bottom-width) + __parse_color(realkv.border-bottom-color),
+                left: __parse_dimension(realkv.border-left-width) + __parse_color(realkv.border-left-color),
+                right: __parse_dimension(realkv.border-right-width) + __parse_color(realkv.border-right-color),
               ),
               inset: __inset,
               it,
@@ -277,25 +352,25 @@
       if realkv.display == "block" {
         return box(
           inset: (
-            top: parse_dimension(realkv.margin-top),
-            bottom: parse_dimension(realkv.margin-bottom),
-            left: parse_dimension(realkv.margin-left),
-            right: parse_dimension(realkv.margin-right),
+            top: __parse_dimension(realkv.margin-top),
+            bottom: __parse_dimension(realkv.margin-bottom),
+            left: __parse_dimension(realkv.margin-left),
+            right: __parse_dimension(realkv.margin-right),
           ),
           it,
         )
       } else {
         // return it
         return {
-          h(parse_dimension(realkv.margin-left))
+          h(__parse_dimension(realkv.margin-left))
           it
-          h(parse_dimension(realkv.margin-right))
+          h(__parse_dimension(realkv.margin-right))
         }
       }
     },
     // Miscellaneous
     it => {
-      set par(leading: parse_dimension(realkv.line-height) - 1em)
+      set par(leading: __parse_dimension(realkv.line-height) - 1em)
       it
     },
     // ...
@@ -371,11 +446,11 @@
       "br": it => linebreak(),
       "hr": it => block(width: 100%, height: 0.5pt, fill: black),
       "table": it => table(
-        columns: dict_vars_current.table_cols * (auto,),
+        columns: dict_vars_current.table_cols * (auto + 1fr,),
         inset: 5pt,
         align: left,
         // it is likely ((cell, cell), (cell, cell)), flatten it to (cell, cell, cell, cell)
-        ..if type(it) == array { it.flatten() } else { it }
+        ..if type(it) == array { it.flatten() } else { it } // error: cannot spread content. Why? (Line 453)
       ),
       "thead": it => it,
       "tbody": it => it,
@@ -411,11 +486,14 @@
     }
 
 
-
-    let processed_children = treeish.children.filter(it => it != "\n " and it != "\n").map(process_child)
     // If it's a table-related container, don't join into a string;
     // keep as an array to allow the 'table' tag to spread them.
     let is_table_component = ("table", "thead", "tbody", "tr").contains(treeish.tag)
+    let processed_children = treeish.children.filter(it => it != "\n " and it != "\n").map(process_child)
+    if not is_table_component {
+      processed_children = __sequence_shake(processed_children)
+    }
+
     let dom_task = if is_table_component {
       processed_children
     } else {
@@ -424,29 +502,41 @@
 
     let attrs_style = treeish.attrs.at("style", default: none)
 
-    // 1. Identify the style and the task
+    // ... inside walk_tree ...
+
+    // 1. Identify the style
     let parsed_style_dict = if attrs_style != none { __parse_css_kv(attrs_style) } else { none }
-    
-    // 2. Resolve the task (styler or raw)
-    // Note: We remove the { } block that was forcing content conversion
-    let final_task = if parsed_style_dict == none {
+
+    // 2. Resolve the task
+    // Only apply __nodestyler if it's NOT a table component that needs to remain an array
+    let final_task = if is_table_component {
+      dom_task
+    } else if parsed_style_dict == none {
       dom_task
     } else {
       __nodestyler(dom_task, parsed_style_dict, treeish.tag, treeish.attrs, tagname_stack_current, treeish)
     }
-    
+
     // 3. Call the container function
-    // If final_task is an array (from a table/tr), container_func uses ..it
-    // If it's content (from a p/div), it just renders normally
-    container_func(final_task)
+    // If the tag is 'table', we handle the array spreading safely
+    if treeish.tag == "table" {
+      return table(
+        columns: dict_vars_current.table_cols * (auto,),
+        inset: 5pt,
+        align: left,
+        ..final_task.flatten() // Now guaranteed to be an array
+      )
+    }
+
+    return container_func(final_task)
   }
   set par(spacing: 0mm)
-  walk_tree(ast_tree.at(0), (), (:))
+  (walk_tree(ast_tree.at(0), (), (:)))
   if debug {
     pagebreak()
-    text(repr(ast_tree))
+    raw(repr(ast_tree))
     pagebreak()
-    repr(walk_tree(ast_tree.at(0), (), (:)))
+    raw(repr(walk_tree(ast_tree.at(0), (), (:))))
   }
 }
 
